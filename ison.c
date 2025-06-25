@@ -746,3 +746,5 @@ json_value *json_query(json_value *node, char *key) {
 }
 
 map_value_type json_value_type(json_value *node) { return node->type; }
+
+json_data json_value_data(json_value *node) { return node->value; }
