@@ -195,3 +195,46 @@ map_value *hash_map_get(hash_map *map, char *key) {
 
   return NULL; // Key not found in collision chain
 }
+
+bool hash_map_replace(hash_map *map, char *key, map_value *value) {
+  // Compute hash index for the key
+  size_t idx = compute_hash(key);
+  hash_node *node = map->nodes[idx];
+
+  // Return NULL immediately if bucket is empty
+  if (node == NULL) {
+    return false;
+  }
+
+  // Handle single-node bucket
+  if (node->key != NULL) {
+    if (strcmp(node->key, key) == 0) {
+      memcpy(&node->value, value, sizeof(*value));
+      return true;
+    }
+    return false; // Key doesn't match single node
+  }
+
+  // Handle collision chain
+  if (node->value.value.ptr != NULL) {
+    array_t *array = node->value.value.ptr;
+    uint64_t len = array_length(array);
+
+    for (uint64_t i = 0; i < len; i++) {
+      hash_node *chain_node = array_get_ptr(array, i);
+      if (chain_node->key && strcmp(chain_node->key, key) == 0) {
+        memcpy(&chain_node->value, value, sizeof(*value));
+
+        return true;
+      }
+    }
+  }
+
+  return false; // Key not found in collision chain
+}
+
+bool hash_map_replace_number(hash_map *map, char *key, double number) {
+  map_value val = {.value.number = number, .type = FLOATS};
+
+  return hash_map_replace(map, key, &val);
+}

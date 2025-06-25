@@ -5,13 +5,7 @@
 #include <inttypes.h>
 
 struct map_value {
-  union {
-    char *string;
-    int integer;
-    void *ptr;
-    double number;
-    bool boolean;
-  } value;
+  json_data value;
   map_value_type type;
 };
 

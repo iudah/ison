@@ -4,10 +4,6 @@
 #include "ison.h"
 #include <inttypes.h>
 
-typedef struct array array_t;
-typedef struct hash_node hash_node;
-typedef struct hash_map hash_map;
-
 array_t *create_array();
 uint64_t array_length(array_t *array);
 int array_get_int(array_t *array, int idx);
@@ -33,5 +29,6 @@ bool hash_map_add_bool(hash_map *map, char *key, bool boolean);
 bool hash_map_add_number(hash_map *map, char *key, double d);
 bool hash_map_add_str(hash_map *map, char *key, char *str);
 map_value *hash_map_get(hash_map *map, char *key);
+bool hash_map_replace_number(hash_map *map, char *key, double d);
 
 #endif

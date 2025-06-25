@@ -75,7 +75,7 @@ endif()
 
 set(SIPHASH_DIR ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/siphash)
 
-set(HEADER_FILES ison.h ${SIPHASH_DIR}/siphash.h)
+set(HEADER_FILES ison.h ison_data.h ds.h ${SIPHASH_DIR}/siphash.h)
 set(SOURCE_FILES ison.c hash-map.c array.c ${SIPHASH_DIR}/siphash.c)
 
 add_library(${TARGET} STATIC ${SOURCE_FILES} ${SIPHASH_SRC})
