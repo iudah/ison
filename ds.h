@@ -15,6 +15,7 @@ void array_append_str(array_t *array, char *value);
 void array_append_list(array_t *array, array_t *value);
 void array_append_dict(array_t *array, hash_map *value);
 void array_append_int(array_t *array, int i);
+map_value *array_get(array_t *array, int idx);
 int array_get_int(array_t *array, int idx);
 void *array_get_ptr(array_t *array, int idx);
 void *array_remove_last_ptr(array_t *array);

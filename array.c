@@ -87,6 +87,15 @@ int array_get_int(array_t *array, int idx) {
   return value.value.integer;
 }
 
+map_value *array_get(array_t *array, int idx) {
+  if (idx < 0 || idx >= array->length) {
+    LOG_ERROR("Index %d out of bounds (size: %" PRIu64 ")", idx, array->length);
+    return NULL;
+  }
+
+  return &array->values[idx];
+}
+
 void *array_get_ptr(array_t *array, int idx) {
   if (idx < 0 || idx >= array->length) {
     LOG_ERROR("Index %d out of bounds (size: %" PRIu64 ")", idx, array->length);
