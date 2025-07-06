@@ -1,6 +1,7 @@
 #include "ds.h"
 #include "ison_data.h"
 #include <errno.h>
+#include <string.h>
 #include <zot.h>
 
 typedef enum json_token_type json_token_t;
