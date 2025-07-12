@@ -360,6 +360,19 @@ void *root_stack_pop(array_t *root_list) {
   return root;
 }
 
+void key_stack_push(array_t *key_list, char *key) {
+  return array_append_str(key_list, key);
+}
+
+char *key_stack_pop(array_t *key_list) {
+  auto root_list_length = array_length(key_list);
+
+  if (!root_list_length)
+    return NULL;
+  auto root = array_remove_last_ptr(key_list);
+  return root;
+}
+
 void list_stack_push(array_t *list_list, void *list) {
   return array_append_ptr(list_list, list);
 }
@@ -375,9 +388,10 @@ void *list_stack_pop(array_t *list_list) {
 
 static void insert_json_value(json_token_t previous_token,
                               hash_map *current_root, array_t *current_list,
-                              char *key, token_stream *tokens, void *dict_list,
-                              array_t *state_stack, map_value_type type) {
-
+                              char **key_ptr, token_stream *tokens,
+                              void *dict_list, array_t *state_stack,
+                              map_value_type type, array_t *key_list) {
+  char *key = *key_ptr;
   if (previous_token == COLON) {
     union json_token_value popped_value =
         tokens ? token_stream_pop_value(tokens)
@@ -409,6 +423,7 @@ static void insert_json_value(json_token_t previous_token,
       // Optional: handle unexpected type
       break;
     }
+    *key_ptr = key_stack_pop(key_list);
     state_stack_pop(state_stack);
   } else {
     union json_token_value popped_value =
@@ -452,6 +467,7 @@ bool parse_json_tokens(token_stream *tokens, json_value **root_node) {
   array_t *node_stack = create_array();
   array_t *root_list = create_array();
   array_t *list_list = create_array();
+  array_t *key_list = create_array();
   hash_map *current_root = NULL;
   array_t *current_list = NULL;
   char *key = NULL;
@@ -503,10 +519,12 @@ bool parse_json_tokens(token_stream *tokens, json_value **root_node) {
         previous_token = state_stack_peek(state_stack);
 
         if (previous_token == COLON || previous_token == SQR_OPEN) {
-          insert_json_value(previous_token,
-                            previous_token == COLON ? current_root : NULL,
-                            previous_token == SQR_OPEN ? current_list : NULL,
-                            value_key, NULL, value, state_stack, DICT);
+          insert_json_value(
+              previous_token, previous_token == COLON ? current_root : NULL,
+              previous_token == SQR_OPEN ? current_list : NULL, &value_key,
+              NULL, value, state_stack, DICT, key_list);
+
+          key = value_key;
         }
       } else {
         LOG_ERROR("Unexpected '}' without matching '{'");
@@ -517,11 +535,12 @@ bool parse_json_tokens(token_stream *tokens, json_value **root_node) {
       previous_token = state_stack_peek(state_stack);
       if (previous_token == CURLY_OPEN) {
         auto tmp = token_stream_pop_value(tokens);
+        key_stack_push(key_list, key);
         key = tmp.string;
       } else if (previous_token == COLON || previous_token == SQR_OPEN) {
 
-        insert_json_value(previous_token, current_root, current_list, key,
-                          tokens, NULL, state_stack, TEXT);
+        insert_json_value(previous_token, current_root, current_list, &key,
+                          tokens, NULL, state_stack, TEXT, key_list);
 
       } else {
         LOG_ERROR("Unexpected string at position %" PRIu64 ".",
@@ -626,7 +645,7 @@ bool parse_json_tokens(token_stream *tokens, json_value **root_node) {
           insert_json_value(previous_token,
                             previous_token == COLON ? current_root : NULL,
                             previous_token == SQR_OPEN ? current_list : NULL,
-                            key, NULL, value, state_stack, LIST);
+                            &key, NULL, value, state_stack, LIST, key_list);
         }
       } else {
         LOG_ERROR("Unexpected ']' without matching '['");
@@ -640,8 +659,8 @@ bool parse_json_tokens(token_stream *tokens, json_value **root_node) {
         return false;
       }
 
-      insert_json_value(previous_token, current_root, current_list, key, tokens,
-                        NULL, state_stack, BOOLEANS);
+      insert_json_value(previous_token, current_root, current_list, &key,
+                        tokens, NULL, state_stack, BOOLEANS, key_list);
 
     } break;
     case NUMBER: {
@@ -651,8 +670,8 @@ bool parse_json_tokens(token_stream *tokens, json_value **root_node) {
         return false;
       }
 
-      insert_json_value(previous_token, current_root, current_list, key, tokens,
-                        NULL, state_stack, FLOATS);
+      insert_json_value(previous_token, current_root, current_list, &key,
+                        tokens, NULL, state_stack, FLOATS, key_list);
 
     } break;
     case NIL: {
@@ -662,8 +681,8 @@ bool parse_json_tokens(token_stream *tokens, json_value **root_node) {
         return false;
       }
 
-      insert_json_value(previous_token, current_root, current_list, key, NULL,
-                        NULL, state_stack, NULLS);
+      insert_json_value(previous_token, current_root, current_list, &key, NULL,
+                        NULL, state_stack, NULLS, key_list);
 
     } break;
     default:
