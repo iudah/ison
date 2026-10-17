@@ -1,6 +1,8 @@
+#include "ison.h"
 #include "ds.h"
 #include "ison_data.h"
 #include <errno.h>
+#include <stdint.h>
 #include <string.h>
 #include <zot.h>
 
@@ -15,7 +17,8 @@ enum json_token_type {
   COMMA,
   STRING,
   COLON,
-  NUMBER,
+  INT_NUMBER,
+  FLOAT_NUMBER,
   OBJECT,
   ARRAY,
   BOOLEAN,
@@ -28,13 +31,13 @@ struct json_value {};
 typedef struct token_stream {
   json_token_t *tokens_array;
   union json_token_value {
-    void *null;
-    void *ptr;
-    char *string;
-    int integer;
-    double number;
-    bool boolean;
-  } *token_values;
+    void   *null;
+    void   *ptr;
+    char   *string;
+    int64_t integer;
+    double  number;
+    bool    boolean;
+  }       *token_values;
   uint64_t tokens_count;
   uint64_t next_token_index;
   uint64_t tokens_capacity;
@@ -44,7 +47,7 @@ typedef struct token_stream {
 } token_stream;
 
 static inline bool token_stream_append_token(token_stream *tokens,
-                                             json_token_t token) {
+                                             json_token_t  token) {
   if (!tokens->tokens_array)
     tokens->tokens_array =
         zcalloc(tokens->tokens_capacity = 32, sizeof(*tokens->tokens_array));
@@ -65,13 +68,13 @@ static inline bool token_stream_append_token(token_stream *tokens,
   return true;
 }
 
-static int current_line = 0;
+static int current_line   = 0;
 static int current_column = 0;
 
 bool parse_json_string_literal(char **pos, char **json_string,
                                uint32_t *buf_size) {
   uint32_t len = 0;
-  char *c = *pos;
+  char    *c   = *pos;
   while (true) {
     if (len >= *buf_size - 1) {
       *buf_size *= 2;
@@ -111,7 +114,7 @@ bool parse_json_string_literal(char **pos, char **json_string,
 
       case 'u':
         c++;
-        escape = (char)strtol((char[]){c[0], c[1], c[2], c[3], 0}, NULL, 16);
+        escape = (char)strtol((char[]){c[0], c[1], c[2], c[3], 0}, nullptr, 16);
         c += 3;
         current_column += 4;
 
@@ -137,7 +140,7 @@ bool parse_json_string_literal(char **pos, char **json_string,
 
 static inline bool token_stream_append_value(token_stream *tokens, char *string,
                                              void *ptr, bool boolean,
-                                             double number,
+                                             double fnumber, int64_t inumber,
                                              json_token_t token) {
   if (!tokens->token_values) {
     tokens->token_values =
@@ -166,8 +169,11 @@ static inline bool token_stream_append_value(token_stream *tokens, char *string,
   case BOOLEAN:
     tokens->token_values[tokens->values_count++].boolean = boolean;
     break;
-  case NUMBER:
-    tokens->token_values[tokens->values_count++].number = number;
+  case FLOAT_NUMBER:
+    tokens->token_values[tokens->values_count++].number = fnumber;
+    break;
+  case INT_NUMBER:
+    tokens->token_values[tokens->values_count++].integer = inumber;
     break;
   default:
     break;
@@ -180,14 +186,57 @@ void static inline invalid_number() {
             current_column);
 }
 
-bool parse_json_number_literal(char **pos, double *number) {
-  char *endptr;
-  *number = strtod(*pos, &endptr);
-  if (endptr == *pos || errno == ERANGE) {
+bool parse_json_number_literal(char **pos, double *fnumber, int64_t *inumber,
+                               int *token_type) {
+  const char *start   = *pos;
+  const char *p       = start;
+  char        buf[45] = {0};
+  size_t      len;
+
+  if (*p == '-')
+    p++;
+
+  bool is_float = false;
+  while (*p >= '0' && *p <= '9')
+    p++;
+  if (*p == '.') {
+    is_float = true;
+    p++;
+    while (*p >= '0' && *p <= '9')
+      p++;
+  }
+  if (*p == 'e' || *p == 'E') {
+    is_float = true;
+    p++;
+    if (*p == '+' || *p == '-')
+      p++;
+    while (*p >= '0' && *p <= '9')
+      p++;
+  }
+
+  len = (size_t)(p - start);
+  if (len == 0 || len >= sizeof(buf)) {
     invalid_number();
     return false;
   }
-  *pos = endptr;
+  memcpy(buf, start, len);
+  buf[len] = '\0';
+
+  errno = 0;
+  char *endptr;
+  if (is_float) {
+    *fnumber    = strtod(buf, &endptr);
+    *token_type = FLOAT_NUMBER;
+  } else {
+    *inumber    = strtoll(buf, &endptr, 10);
+    *token_type = INT_NUMBER;
+  }
+  if (*endptr != '\0' || errno == ERANGE) {
+    invalid_number();
+    return false;
+  }
+
+  *pos = p;
   return true;
 }
 
@@ -199,7 +248,7 @@ void static inline invalid_char() {
 bool tokenize_json_string(char *string, token_stream *tokens) {
   current_line++;
   current_column = 0;
-  char *c = string;
+  char *c        = string;
   while (true) {
     switch (*c) {
     case '{':
@@ -222,13 +271,14 @@ bool tokenize_json_string(char *string, token_stream *tokens) {
       break;
     case '"': {
       token_stream_append_token(tokens, STRING);
-      uint32_t buffsize = 4096;
-      char *json_string = zcalloc(1, buffsize);
+      uint32_t buffsize    = 4096;
+      char    *json_string = zcalloc(1, buffsize);
       c++;
       current_column++;
       if (!parse_json_string_literal(&c, &json_string, &buffsize))
         return false;
-      token_stream_append_value(tokens, json_string, NULL, false, 0, STRING);
+      token_stream_append_value(tokens, json_string, nullptr, false, 0, 0,
+                                STRING);
       zrealloc(json_string, strlen(json_string) + 1);
     } break;
     case '0':
@@ -243,12 +293,15 @@ bool tokenize_json_string(char *string, token_stream *tokens) {
     case '9':
     case '+':
     case '-': {
-      token_stream_append_token(tokens, NUMBER);
-      double number;
-      if (!parse_json_number_literal(&c, &number))
+      int     token_type = INT_NUMBER;
+      double  fnumber;
+      int64_t inumber;
+      if (!parse_json_number_literal(&c, &fnumber, &inumber, &token_type))
         return false;
 
-      token_stream_append_value(tokens, NULL, NULL, false, number, NUMBER);
+      token_stream_append_token(tokens, token_type);
+      token_stream_append_value(tokens, nullptr, nullptr, false, fnumber,
+                                inumber, token_type);
       continue;
 
     } break;
@@ -271,7 +324,7 @@ bool tokenize_json_string(char *string, token_stream *tokens) {
         invalid_char();
         return false;
       }
-      token_stream_append_value(tokens, NULL, NULL, true, 0, BOOLEAN);
+      token_stream_append_value(tokens, nullptr, nullptr, true, 0, 0, BOOLEAN);
       break;
     case 'f':
       if (c[1] == 'a' && c[2] == 'l' && c[3] == 's' && c[4] == 'e') {
@@ -282,7 +335,7 @@ bool tokenize_json_string(char *string, token_stream *tokens) {
         invalid_char();
         return false;
       }
-      token_stream_append_value(tokens, NULL, NULL, false, 0, BOOLEAN);
+      token_stream_append_value(tokens, nullptr, nullptr, false, 0, 0, BOOLEAN);
       break;
     case '/':
       if (c[1] != '/') {
@@ -355,7 +408,7 @@ void *root_stack_pop(array_t *root_list) {
   auto root_list_length = array_length(root_list);
 
   if (!root_list_length)
-    return NULL;
+    return nullptr;
   auto root = array_remove_last_ptr(root_list);
   return root;
 }
@@ -368,7 +421,7 @@ char *key_stack_pop(array_t *key_list) {
   auto root_list_length = array_length(key_list);
 
   if (!root_list_length)
-    return NULL;
+    return nullptr;
   auto root = array_remove_last_ptr(key_list);
   return root;
 }
@@ -381,7 +434,7 @@ void *list_stack_pop(array_t *list_list) {
   auto list_list_length = array_length(list_list);
 
   if (!list_list_length)
-    return NULL;
+    return nullptr;
   auto list = array_remove_last_ptr(list_list);
   return list;
 }
@@ -395,7 +448,7 @@ static void insert_json_value(json_token_t previous_token,
   if (previous_token == COLON) {
     union json_token_value popped_value =
         tokens ? token_stream_pop_value(tokens)
-               : (union json_token_value){.null = NULL};
+               : (union json_token_value){.null = nullptr};
     switch (type) {
     case DICT:
       hash_map_add_dict(current_root, key, dict_list);
@@ -428,7 +481,7 @@ static void insert_json_value(json_token_t previous_token,
   } else {
     union json_token_value popped_value =
         tokens ? token_stream_pop_value(tokens)
-               : (union json_token_value){.null = NULL};
+               : (union json_token_value){.null = nullptr};
     switch (type) {
     case DICT:
       array_append_dict(current_list, dict_list);
@@ -463,19 +516,19 @@ static void insert_json_value(json_token_t previous_token,
 
 bool parse_json_tokens(token_stream *tokens, json_value **root_node) {
   json_token_t current_token;
-  array_t *state_stack = create_array();
-  array_t *node_stack = create_array();
-  array_t *root_list = create_array();
-  array_t *list_list = create_array();
-  array_t *key_list = create_array();
-  hash_map *current_root = NULL;
-  array_t *current_list = NULL;
-  char *key = NULL;
-  void *value;
+  array_t     *state_stack  = create_array();
+  array_t     *node_stack   = create_array();
+  array_t     *root_list    = create_array();
+  array_t     *list_list    = create_array();
+  array_t     *key_list     = create_array();
+  hash_map    *current_root = nullptr;
+  array_t     *current_list = nullptr;
+  char        *key          = nullptr;
+  void        *value;
 
-  json_value *current_value = *root_node = zcalloc(1, sizeof(*current_value));
-  json_value *parent_node = 0;
-  json_token_t previous_token = NO_TOKEN;
+  json_value  *current_value = *root_node = zcalloc(1, sizeof(*current_value));
+  json_value  *parent_node                = 0;
+  json_token_t previous_token             = NO_TOKEN;
 
   while ((current_token = token_stream_pop(tokens))) {
     switch (current_token) {
@@ -493,7 +546,7 @@ bool parse_json_tokens(token_stream *tokens, json_value **root_node) {
       hash_map *new_root = create_hash_map();
       if (current_value->type == UNKNOWN) {
         current_value->value.ptr = new_root;
-        current_value->type = DICT;
+        current_value->type      = DICT;
       }
 
       root_stack_push(root_list, current_root);
@@ -511,18 +564,18 @@ bool parse_json_tokens(token_stream *tokens, json_value **root_node) {
       if (previous_token == CURLY_OPEN) {
         state_stack_pop(state_stack);
 
-        hash_map *value = current_root;
-        char *value_key = key;
-        key = root_stack_pop(root_list);
-        current_root = root_stack_pop(root_list);
+        hash_map *value     = current_root;
+        char     *value_key = key;
+        key                 = root_stack_pop(root_list);
+        current_root        = root_stack_pop(root_list);
 
         previous_token = state_stack_peek(state_stack);
 
         if (previous_token == COLON || previous_token == SQR_OPEN) {
           insert_json_value(
-              previous_token, previous_token == COLON ? current_root : NULL,
-              previous_token == SQR_OPEN ? current_list : NULL, &value_key,
-              NULL, value, state_stack, DICT, key_list);
+              previous_token, previous_token == COLON ? current_root : nullptr,
+              previous_token == SQR_OPEN ? current_list : nullptr, &value_key,
+              nullptr, value, state_stack, DICT, key_list);
 
           key = value_key;
         }
@@ -540,7 +593,7 @@ bool parse_json_tokens(token_stream *tokens, json_value **root_node) {
       } else if (previous_token == COLON || previous_token == SQR_OPEN) {
 
         insert_json_value(previous_token, current_root, current_list, &key,
-                          tokens, NULL, state_stack, TEXT, key_list);
+                          tokens, nullptr, state_stack, TEXT, key_list);
 
       } else {
         LOG_ERROR("Unexpected string at position %" PRIu64 ".",
@@ -615,7 +668,7 @@ bool parse_json_tokens(token_stream *tokens, json_value **root_node) {
       array_t *new_list = create_array();
       if (current_value->type == UNKNOWN) {
         current_value->value.ptr = new_list;
-        current_value->type = LIST;
+        current_value->type      = LIST;
       }
 
       list_stack_push(list_list, current_list);
@@ -636,16 +689,16 @@ bool parse_json_tokens(token_stream *tokens, json_value **root_node) {
         state_stack_pop(state_stack);
 
         array_t *value = current_list;
-        current_list = list_stack_pop(list_list);
+        current_list   = list_stack_pop(list_list);
 
         previous_token = state_stack_peek(state_stack);
 
         if (previous_token == COLON || previous_token == SQR_OPEN) {
 
           insert_json_value(previous_token,
-                            previous_token == COLON ? current_root : NULL,
-                            previous_token == SQR_OPEN ? current_list : NULL,
-                            &key, NULL, value, state_stack, LIST, key_list);
+                            previous_token == COLON ? current_root : nullptr,
+                            previous_token == SQR_OPEN ? current_list : nullptr,
+                            &key, nullptr, value, state_stack, LIST, key_list);
         }
       } else {
         LOG_ERROR("Unexpected ']' without matching '['");
@@ -660,10 +713,10 @@ bool parse_json_tokens(token_stream *tokens, json_value **root_node) {
       }
 
       insert_json_value(previous_token, current_root, current_list, &key,
-                        tokens, NULL, state_stack, BOOLEANS, key_list);
+                        tokens, nullptr, state_stack, BOOLEANS, key_list);
 
     } break;
-    case NUMBER: {
+    case FLOAT_NUMBER: {
       previous_token = state_stack_peek(state_stack);
       if (previous_token != COLON && previous_token != SQR_OPEN) {
         LOG_ERROR("Unexpected number");
@@ -671,7 +724,18 @@ bool parse_json_tokens(token_stream *tokens, json_value **root_node) {
       }
 
       insert_json_value(previous_token, current_root, current_list, &key,
-                        tokens, NULL, state_stack, FLOATS, key_list);
+                        tokens, nullptr, state_stack, FLOATS, key_list);
+
+    } break;
+    case INT_NUMBER: {
+      previous_token = state_stack_peek(state_stack);
+      if (previous_token != COLON && previous_token != SQR_OPEN) {
+        LOG_ERROR("Unexpected number");
+        return false;
+      }
+
+      insert_json_value(previous_token, current_root, current_list, &key,
+                        tokens, nullptr, state_stack, INTEGERS, key_list);
 
     } break;
     case NIL: {
@@ -681,8 +745,8 @@ bool parse_json_tokens(token_stream *tokens, json_value **root_node) {
         return false;
       }
 
-      insert_json_value(previous_token, current_root, current_list, &key, NULL,
-                        NULL, state_stack, NULLS, key_list);
+      insert_json_value(previous_token, current_root, current_list, &key,
+                        nullptr, nullptr, state_stack, NULLS, key_list);
 
     } break;
     default:
@@ -694,7 +758,7 @@ bool parse_json_tokens(token_stream *tokens, json_value **root_node) {
 }
 
 bool tokenize_json_file(FILE *f, token_stream *tokens) {
-  current_line = 0;
+  current_line   = 0;
   current_column = 0;
   char buffer[4096];
   while (fgets(buffer, sizeof(buffer), f)) {
@@ -707,25 +771,25 @@ bool tokenize_json_file(FILE *f, token_stream *tokens) {
 
 json_value *json_parse_file(FILE *f) {
   if (!f) {
-    LOG_ERROR("Received NULL file pointer");
-    return NULL;
+    LOG_ERROR("Received nullptr file pointer");
+    return nullptr;
   }
 
   token_stream tokens;
   memset(&tokens, 0, sizeof(tokens));
 
   if (!tokenize_json_file(f, &tokens)) {
-    return NULL;
+    return nullptr;
   }
 
   if (!tokens.tokens_array) {
-    return NULL;
+    return nullptr;
   }
 
-  json_value *value = NULL; // zcalloc(1, sizeof(*value));
+  json_value *value = nullptr; // zcalloc(1, sizeof(*value));
   if (!parse_json_tokens(&tokens, &value)) {
     zfree(value);
-    return NULL;
+    return nullptr;
   }
 
   return value;
@@ -733,26 +797,26 @@ json_value *json_parse_file(FILE *f) {
 
 json_value *json_parse_string(char *str) {
   if (!str) {
-    LOG_ERROR("Received NULL input string");
-    return NULL;
+    LOG_ERROR("Received nullptr input string");
+    return nullptr;
   }
 
-  current_line = 0;
+  current_line   = 0;
   current_column = 0;
   token_stream tokens;
   memset(&tokens, 0, sizeof(tokens));
 
   if (!tokenize_json_string(str, &tokens)) {
-    return NULL;
+    return nullptr;
   }
   if (!tokens.tokens_array) {
-    return NULL;
+    return nullptr;
   }
 
-  json_value *value = NULL; // zcalloc(1, sizeof(*value));
+  json_value *value = nullptr; // zcalloc(1, sizeof(*value));
   if (!parse_json_tokens(&tokens, &value)) {
     zfree(value);
-    return NULL;
+    return nullptr;
   }
 
   return value;
@@ -762,7 +826,7 @@ json_value *json_query(json_value *node, char *key) {
   if (node->type == DICT) {
     return hash_map_get(node->value.ptr, key);
   }
-  return NULL;
+  return nullptr;
 }
 
 map_value_type json_value_type(json_value *node) { return node->type; }

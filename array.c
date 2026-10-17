@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <inttypes.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <zot.h>
@@ -11,8 +12,8 @@ extern int errno;
 
 struct array {
   map_value *values;
-  uint64_t length;
-  uint64_t capacity;
+  uint64_t   length;
+  uint64_t   capacity;
 };
 
 array_t *create_array() { return zcalloc(1, sizeof(array_t)); }
@@ -38,7 +39,7 @@ void array_append_xxx(array_t *array, map_value *value) {
       abort();
     }
 
-    array->values = tmp;
+    array->values   = tmp;
     array->capacity = new_capacity;
   }
 
@@ -73,12 +74,12 @@ void array_append_str(array_t *array, char *value) {
   return array_append_xxx(array, &val);
 }
 
-void array_append_int(array_t *array, int value) {
+void array_append_int(array_t *array, int64_t value) {
   map_value val = {.value.integer = value, .type = INTEGERS};
   return array_append_xxx(array, &val);
 }
 
-int array_get_int(array_t *array, int idx) {
+int64_t array_get_int(array_t *array, int idx) {
   if (idx < 0 || idx >= array->length) {
     LOG_ERROR("Index %d out of bounds (size: %" PRIu64 ")", idx, array->length);
     return 0;
@@ -90,7 +91,7 @@ int array_get_int(array_t *array, int idx) {
 map_value *array_get(array_t *array, int idx) {
   if (idx < 0 || idx >= array->length) {
     LOG_ERROR("Index %d out of bounds (size: %" PRIu64 ")", idx, array->length);
-    return NULL;
+    return nullptr;
   }
 
   return &array->values[idx];
@@ -99,22 +100,22 @@ map_value *array_get(array_t *array, int idx) {
 void *array_get_ptr(array_t *array, int idx) {
   if (idx < 0 || idx >= array->length) {
     LOG_ERROR("Index %d out of bounds (size: %" PRIu64 ")", idx, array->length);
-    return NULL;
+    return nullptr;
   }
   map_value value = array->values[idx];
-  return (void *)value.value.ptr;
+  return value.value.ptr;
 }
 
 void *array_remove_last_ptr(array_t *array) {
   if (array->length == 0) {
     LOG_ERROR("Attempted to remove from empty array");
-    return NULL;
+    return nullptr;
   }
   map_value value = array->values[--array->length];
-  return (void *)value.value.ptr;
+  return value.value.ptr;
 }
 
-int array_remove_last_int(array_t *array) {
+int64_t array_remove_last_int(array_t *array) {
   if (array->length == 0) {
     LOG_ERROR("Attempted to remove from empty array");
     return 0;

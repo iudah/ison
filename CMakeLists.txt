@@ -83,7 +83,9 @@ add_library(ison::${TARGET} ALIAS ${TARGET})
 
 target_include_directories(${TARGET}
     PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include ${SIPHASH_DIR}>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<BUILD_INTERFACE:${SIPHASH_DIR}>
     $<INSTALL_INTERFACE:include>
 )
 target_link_libraries(${TARGET} PUBLIC memalloc::memalloc)

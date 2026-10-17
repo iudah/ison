@@ -4,19 +4,19 @@
 #include <inttypes.h>
 #include <stdio.h>
 
-typedef struct array array_t;
-typedef struct hash_node hash_node;
-typedef struct hash_map hash_map;
-typedef struct map_value map_value;
+typedef struct array        array_t;
+typedef struct hash_node    hash_node;
+typedef struct hash_map     hash_map;
+typedef struct map_value    map_value;
 typedef enum map_value_type map_value_type;
-typedef map_value json_value;
+typedef map_value           json_value;
 
 typedef union json_value_union {
-  char *string;
-  int integer;
-  void *ptr;
-  double number;
-  bool boolean;
+  char   *string;
+  int64_t integer;
+  void   *ptr;
+  double  number;
+  bool    boolean;
 } json_data;
 
 enum map_value_type {

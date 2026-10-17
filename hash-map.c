@@ -1,4 +1,5 @@
 #include "ds.h"
+#include "ison.h"
 #include "ison_data.h"
 #include <siphash.h>
 #include <stdbool.h>
@@ -6,14 +7,14 @@
 #include <zot.h>
 
 #define HASHMAP_LIMIT 32
-#define HASH_LEN 16
+#define HASH_LEN      16
 
 char key[16];
 
 void __attribute__((__constructor__)) init() { arc4random_buf(key, 16); }
 
 struct hash_node {
-  char *key;
+  char     *key;
   map_value value;
 };
 
@@ -22,8 +23,8 @@ struct hash_map {
 };
 
 hash_map *create_hash_map() {
-  hash_map *map = zmalloc(sizeof(*map));
-  map->nodes = zmalloc(HASHMAP_LIMIT * sizeof(*map->nodes));
+  hash_map *map = zcalloc(1, sizeof(*map));
+  map->nodes    = zmalloc(HASHMAP_LIMIT * sizeof(*map->nodes));
 
   return map;
 }
@@ -32,8 +33,8 @@ uint64_t compute_hash(char *string) {
   uint8_t digest[HASH_LEN];
   siphash(string, strlen(string), key, digest, HASH_LEN);
 #if (HASH_LEN == 16)
-  uint64_t ms64b = *(uint64_t *)digest;
-  uint64_t ls64b = *(uint64_t *)(digest + 8);
+  uint64_t ms64b    = *(uint64_t *)digest;
+  uint64_t ls64b    = *(uint64_t *)(digest + 8);
   uint64_t hash_int = ms64b ^ ls64b;
 #else
   uint64_t hash_int = *(uint64_t *)digest;
@@ -58,7 +59,7 @@ bool hash_map_add(hash_map *map, char *key, map_value *value) {
   size_t idx = compute_hash(key);
 
   // Check if there is already a node at the computed index
-  if (map->nodes[idx] != NULL) {
+  if (map->nodes[idx] != nullptr) {
     // If the existing node has a key, it's a direct node, not yet a collision
     // list
     if (map->nodes[idx]->key) {
@@ -77,10 +78,10 @@ bool hash_map_add(hash_map *map, char *key, map_value *value) {
         memcpy(&node->value, &conflicting_node->value, sizeof(node->value));
 
         // Mark the original node as a collision holder by nullifying its key
-        conflicting_node->key = NULL;
+        conflicting_node->key = nullptr;
 
         // Create a new array to hold nodes with the same hash index
-        array_t *array = create_array();
+        array_t *array                    = create_array();
         conflicting_node->value.value.ptr = array;
 
         // Add the copied conflicting node to the collision array
@@ -93,11 +94,11 @@ bool hash_map_add(hash_map *map, char *key, map_value *value) {
         array_append_ptr(array, node);
       }
     } else {
-      // Existing node is already a collision array (key is NULL)
+      // Existing node is already a collision array (key is nullptr)
 
       // Retrieve the collision array from the existing node
       array_t *array = (void *)map->nodes[idx]->value.value.ptr;
-      uint64_t len = array_length(array);
+      uint64_t len   = array_length(array);
 
       // Check for duplicate keys within the collision array
       for (uint64_t i = 0; i < len; i++) {
@@ -139,7 +140,7 @@ bool hash_map_add_list(hash_map *map, char *key, array_t *list) {
 
   return hash_map_add(map, key, &val);
 }
-bool hash_map_add_int(hash_map *map, char *key, int integer) {
+bool hash_map_add_int(hash_map *map, char *key, int64_t integer) {
   map_value val = {.value.integer = integer, .type = INTEGERS};
 
   return hash_map_add(map, key, &val);
@@ -164,26 +165,26 @@ bool hash_map_add_str(hash_map *map, char *key, char *str) {
 
 map_value *hash_map_get(hash_map *map, char *key) {
   // Compute hash index for the key
-  size_t idx = compute_hash(key);
+  size_t     idx  = compute_hash(key);
   hash_node *node = map->nodes[idx];
 
-  // Return NULL immediately if bucket is empty
-  if (node == NULL) {
-    return NULL;
+  // Return nullptr immediately if bucket is empty
+  if (node == nullptr) {
+    return nullptr;
   }
 
   // Handle single-node bucket
-  if (node->key != NULL) {
+  if (node->key != nullptr) {
     if (strcmp(node->key, key) == 0) {
       return &node->value;
     }
-    return NULL; // Key doesn't match single node
+    return nullptr; // Key doesn't match single node
   }
 
   // Handle collision chain
-  if (node->value.value.ptr != NULL) {
+  if (node->value.value.ptr != nullptr) {
     array_t *array = node->value.value.ptr;
-    uint64_t len = array_length(array);
+    uint64_t len   = array_length(array);
 
     for (uint64_t i = 0; i < len; i++) {
       hash_node *chain_node = array_get_ptr(array, i);
@@ -193,21 +194,21 @@ map_value *hash_map_get(hash_map *map, char *key) {
     }
   }
 
-  return NULL; // Key not found in collision chain
+  return nullptr; // Key not found in collision chain
 }
 
 bool hash_map_replace(hash_map *map, char *key, map_value *value) {
   // Compute hash index for the key
-  size_t idx = compute_hash(key);
+  size_t     idx  = compute_hash(key);
   hash_node *node = map->nodes[idx];
 
-  // Return NULL immediately if bucket is empty
-  if (node == NULL) {
+  // Return nullptr immediately if bucket is empty
+  if (node == nullptr) {
     return false;
   }
 
   // Handle single-node bucket
-  if (node->key != NULL) {
+  if (node->key != nullptr) {
     if (strcmp(node->key, key) == 0) {
       memcpy(&node->value, value, sizeof(*value));
       return true;
@@ -216,9 +217,9 @@ bool hash_map_replace(hash_map *map, char *key, map_value *value) {
   }
 
   // Handle collision chain
-  if (node->value.value.ptr != NULL) {
+  if (node->value.value.ptr != nullptr) {
     array_t *array = node->value.value.ptr;
-    uint64_t len = array_length(array);
+    uint64_t len   = array_length(array);
 
     for (uint64_t i = 0; i < len; i++) {
       hash_node *chain_node = array_get_ptr(array, i);
@@ -237,4 +238,49 @@ bool hash_map_replace_number(hash_map *map, char *key, double number) {
   map_value val = {.value.number = number, .type = FLOATS};
 
   return hash_map_replace(map, key, &val);
+}
+
+bool hash_map_replace_int(hash_map *map, char *key, int64_t number) {
+  map_value val = {.value.integer = number, .type = INTEGERS};
+
+  return hash_map_replace(map, key, &val);
+}
+
+static void node_copy(struct hash_node **dest, struct hash_node *src) {
+  if (src == nullptr) {
+    return;
+  }
+
+  struct hash_node *node = zcalloc(1, sizeof(*node));
+  *dest                  = node;
+  if (src->key != nullptr) {
+    node->key = zstrdup(src->key);
+    memcpy(&node->value, &src->value, sizeof(src->value));
+    return;
+  }
+
+  if (src->value.value.ptr != nullptr) {
+    array_t *array        = src->value.value.ptr;
+    node->value.value.ptr = create_array();
+    uint64_t len          = array_length(array);
+
+    for (uint64_t i = 0; i < len; i++) {
+      hash_node *chain_node     = array_get_ptr(array, i);
+      hash_node *new_chain_node = zcalloc(1, sizeof(*new_chain_node));
+
+      new_chain_node->key = zstrdup(chain_node->key);
+
+      memcpy(&new_chain_node->value, &chain_node->value,
+             sizeof(new_chain_node->value));
+      array_append_ptr(node->value.value.ptr, new_chain_node);
+    }
+  }
+}
+
+hash_map *hash_map_copy(hash_map *src) {
+  auto map = create_hash_map();
+  for (uint32_t i = 0; i < HASHMAP_LIMIT; ++i) {
+    node_copy(&map->nodes[i], src->nodes[i]);
+  }
+  return map;
 }
