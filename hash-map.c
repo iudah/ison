@@ -197,6 +197,38 @@ map_value *hash_map_get(hash_map *map, char *key) {
   return nullptr; // Key not found in collision chain
 }
 
+bool hash_map_iterate(hash_map *map,
+                      bool      (*callback)(char *key, map_value *value,
+                                       void *state),
+                      void     *state) {
+  bool all_ok = true;
+
+  for (uint64_t i = 0; i < HASHMAP_LIMIT; ++i) {
+    hash_node *node = map->nodes[i];
+    if (!node)
+      continue;
+
+    if (node->key) {
+      all_ok &= callback(node->key, &node->value, state);
+      continue;
+    }
+
+    array_t *array = node->value.value.ptr;
+    if (!array)
+      continue;
+
+    uint64_t len = array_length(array);
+    for (uint64_t j = 0; j < len; ++j) {
+      hash_node *chain_node = array_get_ptr(array, j);
+      if (!chain_node || !chain_node->key)
+        continue;
+      all_ok &= callback(chain_node->key, &chain_node->value, state);
+    }
+  }
+
+  return all_ok;
+}
+
 bool hash_map_replace(hash_map *map, char *key, map_value *value) {
   // Compute hash index for the key
   size_t     idx  = compute_hash(key);

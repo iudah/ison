@@ -33,5 +33,9 @@ map_value *hash_map_get(hash_map *map, char *key);
 bool       hash_map_replace_number(hash_map *map, char *key, double d);
 bool       hash_map_replace_int(hash_map *map, char *key, int64_t number);
 hash_map  *hash_map_copy(hash_map *src);
+bool       hash_map_iterate(hash_map *map,
+                            bool      (*callback)(char *key, map_value *value,
+                                       void *state),
+                            void     *state);
 
 #endif
